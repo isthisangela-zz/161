@@ -182,6 +182,9 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 		return nil, errors.New(strings.ToTitle("Error getting user"))
 	}
 	json.Unmarshal(userjson, userdataptr)
+	if userdata.FatKey != fatkey {
+		return nil, errors.New(strings.ToTitle("Integrity check failed"))
+	}
 	return &userdata, nil
 }
 
@@ -189,7 +192,13 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 //
 // The name of the file should NOT be revealed to the datastore!
 func (userdata *User) StoreFile(filename string, data []byte) {
-	return
+	uuid := uuid.New()
+	data, err0 := json.Marshal(data)
+	if err0 != nil {
+		return nil, err0
+	}
+	// make byte array with filename and data, confidentiality + integrity
+	userlib.DatastoreSet(uuid, encrypted)
 }
 
 // This adds on to an existing file.
