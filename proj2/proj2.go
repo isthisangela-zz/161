@@ -394,6 +394,11 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 // You may want to define what you actually want to pass as a
 // sharingRecord to serialized/deserialize in the data store.
 type sharingRecord struct {
+	EncryptedMsg []byte
+	Signature []byte
+	HMAC []byte
+	SymKey []byte
+	MacKey []byte
 }
 
 // This creates a sharing record, which is a key pointing to something
@@ -408,19 +413,57 @@ type sharingRecord struct {
 // should be able to know the sender.
 
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
-	data, err := userdata.LoadFile(filename)
-	_ = data
-	if err != nil {
-		return "", errors.New(strings.ToTitle("No file with this name"))
-	}
-	mykey := userdata.DecKey
-	theirkey, ok := userlib.KeystoreGet(recipient + "enc")
+	// verify file on sender's side
+	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return "", errors.New(strings.ToTitle("Couldn't find recipient's public key"))
+		return nil, errors.New(strings.ToTitle("No file with this name"))
 	}
-	_, _, _ = mykey, theirkey, ok
-	magic_string = ""
 
+	// get uuid file
+	encrypted, ok := userlib.DatastoreGet(uuidRoot)
+	if !ok {
+		return nil, errors.New(strings.ToTitle("No file with this id"))
+	}
+	deckey := userdata.FileKeys[uuidRoot]
+	uuidFile := userlib.SymDec(deckey, encrypted)
+
+	// use it to get keys for encrypting and signing
+	symKeyFile := userdata.FileKeys[uuidFile.String() + "encrypt"]
+	macKeyFile := userdata.FileKeys[uuidFile.String() + "mac"]
+
+	// initialize sharingRecord. someone said json.marshal doesn't take args this long
+	// each thingy is 16 bytes
+	longslice := append([]byte(uuidRoot.String()), symKeyFile, macKeyFile)
+
+	// encryption for confidentiality - pke or sym?
+	symkey := // whomst
+	iv := userlib.RandomBytes(16)
+	encrypted := userlib.SymEnc(symkey, iv, longslice)
+
+	// encode magic_string, data signature will give it authenticity
+	signkey := userdata.SignKey
+	sig, err := userlib.DSSign(signkey, encrypted)
+	if err != nil {
+		return nil, errors.New(strings.ToTitle("Error making signature"))
+	}
+
+	// hmac for integrity - how to check in receiveFile?
+	mackey := // what
+	hmac, err := userlib.HMACEval(mackey, encrypted)
+	if err != nil {
+		return "", err
+	}
+	
+	rec = sharingRecord{EncryptedMsg: encrypted, Signature: sig, HMAC: hmac, SymKey: symkey, MacKey: mackey} // probably so insecure
+	// where are we supposed to put symkey and mackey ooooomg
+	marshal, err := json.Marshal(rec)
+	if err != nil {
+		return nil, err
+	}
+	userlib.DatastoreSet(LSDKFJ, marshal) // what the fuck
+
+	// READ THIS!!! basically idk what is supposed to be the magic string, i think probably encryptedmsg, but dude then all the other stuff we need to verify it gets transmitted separately in a datastoreset
+	magic_string = // we can set it to literally anythign.. rn everythigns in the rec struct so like set this to sometjing and remove it from the struct
 	return magic_string, nil
 }
 
@@ -434,19 +477,60 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	if !ok {
 		return errors.New(strings.ToTitle("Recipient already has file with this name"))
 	}
-	// register new file under this user
 
-	// but is actually the same file
+	var rec sharingRecord
+
+	// get from datastore
+	marshal, ok := userlib.DatastoreGet(LSDKFJ)
+	if !ok {
+		return errors.New(strings.ToTitle("Error fetching from datastore"))
+	}
+	json.Demarshal(marshal, &rec)
+
+	encrypted := rec.EncryptedMsg
+	sig := rec.Signature
+	hmac := rec.HMAC
+	symkey := rec.SymKey
+	mackey := rec.MacKey
+
+	// verify that it's from the right sender
+	verkey, ok := userlib.KeystoreGet(sender)
+	if !ok {
+		return errors.New(strings.ToTitle("Could not find sender's public key"))
+	}
+	err := userlib.DSVerify(verkey, encrypted, sig)
+	if err != nil {
+		return errors.New(strings.ToTitle("Error verifying signature"))
+	}
+
+	// decrypt
+	longslice := userlib.SymDec(symkey, encrypted)
+
+	// verify mac
+	computehmac := HMACEval(mackey, encrypted)
+	if !HMACEqual(hmac, computehmac) {
+		return errors.New(strings.ToTitle("HMACs didn't match up, file tampered with"))
+	}
+
+	// now we are clear so give the user file access
+	// CANDACE HELP this is wrong!!!!!!
+	userdata.StoreFile(filename string, data []byte)
+
 	return nil
 }
 
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
-	data, err := userdata.LoadFile(filename)
-	if err != nil {
+	// verify file on sender's side
+	uuidRoot, ok := userdata.RootFiles[filename]
+	if !ok {
 		return errors.New(strings.ToTitle("No file with this name"))
 	}
+
 	// delete the file
+	// ???? go to that address and fill in an empty file
+
+	// store a fresh copy under this user
 	userdata.StoreFile(filename, data)
-	return
+	return nil
 }
