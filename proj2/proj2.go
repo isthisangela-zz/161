@@ -101,7 +101,7 @@ type User struct {
 	DecKey userlib.PKEDecKey
 	FatKey []byte // containing MAC key, symmetric encryption key, etc
 	RootFiles map[string] uuid.UUID
-	FileKeys.map[string] []byte
+	FileKeys map[string] []byte
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
@@ -243,12 +243,15 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	rootEncrypt := userlib.RandomBytes(16)
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
-	ivRoot = userlib.RandomBytes(16)
+	ivRoot := userlib.RandomBytes(16)
 
 	// set fields
-	unecrypted := append([]byte(filename), data)
-	encrypted := SymEnc(fileEncrypt, ivData, unecrypted)
-	mac := HMACEval(macKey, data)
+	unencrypted := append([]byte(filename), data...)
+	encrypted := userlib.SymEnc(fileEncrypt, ivData, unencrypted)
+	mac, err := userlib.HMACEval(macKey, data)
+	if err != nil {
+		return
+	}
 	file.NameLength = len(filename)
 	file.FileData = encrypted
 	file.Mac = mac
@@ -263,12 +266,15 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	// encrypt the files
 	fileBytes, err := json.Marshal(file)
-	cipherFile := SymEnc(fileEncrypt, ivFile, fileBytes)
+	cipherFile := userlib.SymEnc(fileEncrypt, ivFile, fileBytes)
 	userlib.DatastoreSet(uuidFile, cipherFile)
 
 	rootBytes, err2 := json.Marshal(root)
-	cipherRoot := SymEnc(rootEncrypt, ivRoot, rootBytes)
-	userlib.DatastoresSet(uuidRoot, cipherRoot)
+	if err2 != nil {
+		return
+	}
+	cipherRoot := userlib.SymEnc(rootEncrypt, ivRoot, rootBytes)
+	userlib.DatastoreSet(uuidRoot, cipherRoot)
 }
 
 // This adds on to an existing file.
@@ -280,9 +286,9 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	var file File
 
-	uuidRoot, ok = userdata.RootFiles[filename]
+	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return
+		return //idk how to throw error
 	}
 
 	uuidFile := uuid.New()
@@ -291,9 +297,12 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
 
-	unecrypted := append([]byte(filename), data)
-	encrypted := SymEnc(fileEncrypt, ivData, unecrypted)
-	mac := HMACEval(macKey, data)
+	unencrypted := append([]byte(filename), data...)
+	encrypted := userlib.SymEnc(fileEncrypt, ivData, unencrypted)
+	mac, err := userlib.HMACEval(macKey, data)
+	if err != nil {
+		return err
+	}
 	file.NameLength = len(filename)
 	file.FileData = encrypted
 	file.Mac = mac
@@ -302,26 +311,67 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	userdata.FileKeys[uuidFile.String() + "mac"] = macKey
 
 	fileBytes, err := json.Marshal(file)
-	cipherFile := SymEnc(fileEncrypt, ivFile, fileBytes)
+	cipherFile := userlib.SymEnc(fileEncrypt, ivFile, fileBytes)
 	userlib.DatastoreSet(uuidFile, cipherFile)
 
-	encryptedFiles := userlib.DatastoreGet(uuidRoot)
+	var root RootFile
+	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
+	if !ok {
+		return
+	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
 	json.Unmarshal(rootBytes, root)
 	root.Files = append(root.Files, uuidFile)
+
+	return nil
 }
 
 // This loads a file from the Datastore.
 //
 // It should give an error if the file is corrupted in any way.
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
-	var file File
-
-	uuidRoot, ok = userdata.RootFiles[filename]
+	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
 		return
 	}
+
+	var root RootFile
+	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
+	if !ok {
+		return
+	}
+	rootKey := userdata.FileKeys[uuidRoot.String()]
+	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
+	json.Unmarshal(rootBytes, root)
+
+	for i := 0; i < len(root.Files); i++ {
+		var file File
+		uuidFile := root.Files[i]
+		encrypted, ok := userlib.DatastoreGet(uuidFile)
+		if !ok {
+			return
+		}
+		fileKey := userdata.FileKeys[uuidFile.String() + "encrypt"]
+		fileBytes := userlib.SymDec(fileKey, encrypted)
+		json.Unmarshal(fileBytes, file)
+
+		encryptedData := file.FileData
+		dataBytes := userlib.SymDec(fileKey, encryptedData)
+		dataNoName := dataBytes[file.NameLength:]
+
+		newMac, err := userlib.HMACEval(userdata.FileKeys[uuidFile.String() + "mac"], dataNoName)
+		if err != nil {
+			return nil, err
+		}
+		if !userlib.HMACEqual(file.Mac, newMac) {
+			return nil, nil//idk error
+		}
+
+		data = append(data, dataNoName...)
+	}
+
+	return data, nil
 }
 
 // You may want to define what you actually want to pass as a
