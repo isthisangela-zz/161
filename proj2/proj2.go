@@ -106,6 +106,16 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 
+	// generate signing & verifying key for digital signatures
+
+	// generate decryption & encryption key for asymmetric encryption
+
+	// generate one more key for MACing
+
+	// encrypt userdata and store in datastore
+
+	// store public key in keystore
+
 	return &userdata, nil
 }
 
