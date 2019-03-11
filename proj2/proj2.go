@@ -246,8 +246,8 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	ivRoot = userlib.RandomBytes(16)
 
 	// set fields
-	unecrypted := []byte(filename) + data
-	encrypted = SymEnc(fileEncrypt, ivData, unecrypted)
+	unecrypted := append([]byte(filename), data)
+	encrypted := SymEnc(fileEncrypt, ivData, unecrypted)
 	mac := HMACEval(macKey, data)
 	file.NameLength = len(filename)
 	file.FileData = encrypted
@@ -291,8 +291,8 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
 
-	unecrypted := []byte(filename) + data
-	encrypted = SymEnc(fileEncrypt, ivData, unecrypted)
+	unecrypted := append([]byte(filename), data)
+	encrypted := SymEnc(fileEncrypt, ivData, unecrypted)
 	mac := HMACEval(macKey, data)
 	file.NameLength = len(filename)
 	file.FileData = encrypted
@@ -316,7 +316,12 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 //
 // It should give an error if the file is corrupted in any way.
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
-	return
+	var file File
+
+	uuidRoot, ok = userdata.RootFiles[filename]
+	if !ok {
+		return
+	}
 }
 
 // You may want to define what you actually want to pass as a
