@@ -108,7 +108,6 @@ type User struct {
 }
 
 type File struct {
-	NameLength int
 	FileData []byte
 	Mac []byte
 }
@@ -246,13 +245,11 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	ivRoot := userlib.RandomBytes(16)
 
 	// set fields
-	unencrypted := append([]byte(filename), data...)
-	encrypted := userlib.SymEnc(fileEncrypt, ivData, unencrypted)
+	encrypted := userlib.SymEnc(fileEncrypt, ivData, data)
 	mac, err := userlib.HMACEval(macKey, data)
 	if err != nil {
 		return
 	}
-	file.NameLength = len(filename)
 	file.FileData = encrypted
 	file.Mac = mac
 
@@ -313,13 +310,11 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
 
-	unencrypted := append([]byte(filename), data...)
-	encrypted := userlib.SymEnc(fileEncrypt, ivData, unencrypted)
+	encrypted := userlib.SymEnc(fileEncrypt, ivData, data)
 	mac, err := userlib.HMACEval(macKey, data)
 	if err != nil {
 		return err
 	}
-	file.NameLength = len(filename)
 	file.FileData = encrypted
 	file.Mac = mac
 
@@ -366,18 +361,15 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		uuidFile := root.Files[i]
 		encrypted, ok := userlib.DatastoreGet(uuidFile)
 		if !ok {
-			return
+			return nil, errors.New(strings.ToTitle("File storage corrupted"))
 		}
 
 		fileKey := userdata.FileKeys[uuidFile.String() + "encrypt"]
 		fileBytes := userlib.SymDec(fileKey, encrypted)
 		json.Unmarshal(fileBytes, &file)
 
-		encryptedData := file.FileData
-		dataBytes := userlib.SymDec(fileKey, encryptedData)
-		dataNoName := dataBytes[file.NameLength:]
-
-		newMac, err := userlib.HMACEval(userdata.FileKeys[uuidFile.String() + "mac"], dataNoName)
+		dataBytes := userlib.SymDec(fileKey, file.FileData)
+		newMac, err := userlib.HMACEval(userdata.FileKeys[uuidFile.String() + "mac"], dataBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -385,7 +377,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 			return nil, errors.New(strings.ToTitle("Failed integrity test"))
 		}
 
-		data = append(data, dataNoName...)
+		data = append(data, dataBytes...)
 	}
 
 	return data, nil
