@@ -78,6 +78,22 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 	return
 }
 
+// Helper function: Tests byte slice equality
+func testEq(a, b []byte) bool {
+    if (a == nil) != (b == nil) { 
+        return false; 
+    }
+    if len(a) != len(b) {
+        return false
+    }
+    for i := range a {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
 // The structure definition for a user record
 type User struct {
 	Username string
@@ -203,21 +219,6 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	return &userdata, nil
-}
-
-func testEq(a, b []byte) bool {
-    if (a == nil) != (b == nil) { 
-        return false; 
-    }
-    if len(a) != len(b) {
-        return false
-    }
-    for i := range a {
-        if a[i] != b[i] {
-            return false
-        }
-    }
-    return true
 }
 
 // This stores a file in the datastore.
