@@ -81,10 +81,19 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 // The structure definition for a user record
 type User struct {
 	Username string
-
+	SignKey DSSignKey
+	DecKey PKEDecKey
+	MACKey []byte
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
+}
+
+type File struct {
+	Filename string
+	FileUUID uuid.UUID
+	FileKey []byte
+	FileSlice int
 }
 
 // This creates a user.  It will only be called once for a user
@@ -105,16 +114,39 @@ type User struct {
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
+	unbyte := []byte(username)
+	pwbyte := []byte(password)
 
-	// generate signing & verifying key for digital signatures
+	// generate decryption (priv) & encryption key for asymmetric encryption
+	enckey, deckey, err0 := PKEKeyGen()
+	if err0 != nil {
+		return nil, err0
+	}
 
-	// generate decryption & encryption key for asymmetric encryption
+	// generate signing (priv) & verifying key for digital signatures
+	signkey, verkey, err1 := DSKeyGen()
+	if err1 != nil {
+		return nil, err1
+	}
 
-	// generate one more key for MACing
+	// generate one more key for MACing (priv)
+	mackey := Argon2Key(pwbyte, unbyte, 128)
 
-	// encrypt userdata and store in datastore
+	// encrypt userdata struct containing private keys
+	userdata.Username = username
+	userdata.DecKey = deckey
+	userdata.SignKey = signkey
+	userdata.MACKey = mackey
+
+	// store struct in datastore
+	macbytes := HMACEval(mackey, unbyte)
+	uuid := uuid.FromBytes(macbytes[:16])
+	encrypted := json.marshal(userdata)
+	DatastoreSet(uuid, encrypted)
 
 	// store public key in keystore
+	KeystoreSet(username + '_enc', enckey)
+	KeystoreSet(username + '_ver', verkey)
 
 	return &userdata, nil
 }
