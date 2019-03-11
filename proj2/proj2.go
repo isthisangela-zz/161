@@ -81,9 +81,9 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 // The structure definition for a user record
 type User struct {
 	Username string
-	SignKey DSSignKey
-	DecKey PKEDecKey
-	MACKey []byte
+	SignKey userlib.DSSignKey
+	DecKey userlib.PKEDecKey
+	FatKey []byte // containing MAC key, symmetric encryption key, etc
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
@@ -113,43 +113,51 @@ type File struct {
 // You can assume the user has a STRONG password
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	userdataptr = &userdata
 	unbyte := []byte(username)
 	pwbyte := []byte(password)
 
 	// generate decryption (priv) & encryption key for asymmetric encryption
-	enckey, deckey, err0 := PKEKeyGen()
+	enckey, deckey, err0 := userlib.PKEKeyGen()
 	if err0 != nil {
 		return nil, err0
 	}
 
 	// generate signing (priv) & verifying key for digital signatures
-	signkey, verkey, err1 := DSKeyGen()
+	signkey, verkey, err1 := userlib.DSKeyGen()
 	if err1 != nil {
 		return nil, err1
 	}
 
 	// generate one more key for MACing (priv)
-	mackey := Argon2Key(pwbyte, unbyte, 16)
+	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
+	mackey := fatkey[:16]
+	symkey := fatkey[16:32]
 
-	// encrypt userdata struct containing private keys
+	// put private keys in userdata
 	userdata.Username = username
 	userdata.DecKey = deckey
 	userdata.SignKey = signkey
-	userdata.MACKey = mackey
+	userdata.FatKey = fatkey
 
-	// store struct in datastore
-	macbytes, err2 := HMACEval(mackey, unbyte)
+	// generate iv and encrypt userdata struct
+	iv := userlib.RandomBytes(16)
+	userjson, err2 := json.Marshal(userdata)
 	if err2 != nil {
 		return nil, err2
 	}
-	uuid := uuid.FromBytes(macbytes[:16])
-	encrypted := json.marshal(userdata)
-	DatastoreSet(uuid, encrypted)
+	cipher := userlib.SymEnc(symkey, iv, userjson)
+
+	// make uuid and store struct in datastore
+	macbytes, err3 := userlib.HMACEval(mackey, unbyte)
+	if err3 != nil {
+		return nil, err3
+	}
+	uuid, _ := uuid.FromBytes(macbytes[:16])
+	userlib.DatastoreSet(uuid, cipher)
 
 	// store public key in keystore
-	KeystoreSet(username + '_enc', enckey)
-	KeystoreSet(username + '_ver', verkey)
+	userlib.KeystoreSet(username + "_enc", enckey)
+	userlib.KeystoreSet(username + "_ver", verkey)
 
 	return &userdata, nil
 }
@@ -159,9 +167,21 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	userdataptr = &userdata
-
-	return userdataptr, nil
+	/*unbyte := []byte(username)
+	pwbyte := []byte(password)
+	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
+	mackey := fatkey[:16]
+	macbytes, err2 := userlib.HMACEval(mackey, unbyte)
+	if err2 != nil {
+		return nil, err2
+	}
+	uuid, _ := uuid.FromBytes(macbytes[:16])
+	userjson, ok := userlib.DatastoreGet(uuid)
+	userdata = json.Unmarshal(userjson, User)
+	if !ok {
+		return nil, "Error getting user"
+	}*/
+	return &userdata, nil
 }
 
 // This stores a file in the datastore.
