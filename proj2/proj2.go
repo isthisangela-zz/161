@@ -102,7 +102,6 @@ type User struct {
 	FatKey []byte // containing MAC key, symmetric encryption key, etc
 	RootFiles map[string] uuid.UUID
 	FileKeys.map[string] []byte
-	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
 }
@@ -247,7 +246,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	// set fields
 	unecrypted := []byte(filename) + data
-	encrypted = SymEnc(fileEncrypt, ivData, unecrypted)
+	encrypted := SymEnc(fileEncrypt, ivData, unecrypted)
 	mac := HMACEval(macKey, data)
 	file.NameLength = len(filename)
 	file.FileData = encrypted
@@ -352,6 +351,10 @@ func (userdata *User) ShareFile(filename string, recipient string) (
 func (userdata *User) ReceiveFile(filename string, sender string,
 	magic_string string) error {
 	// check if filename is already under user, if so, throw error
+	existing = userdata.RootFiles
+	if existing[filename] {
+		return errors.New(strings.ToTitle("Recipient already has file with this name"))
+	}
 	// register new file under this user
 	// but is actually the same file
 	return nil
