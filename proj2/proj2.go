@@ -167,7 +167,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	/*unbyte := []byte(username)
+	userdataptr = &userdata
+	unbyte := []byte(username)
 	pwbyte := []byte(password)
 	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
 	mackey := fatkey[:16]
@@ -177,10 +178,10 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 	uuid, _ := uuid.FromBytes(macbytes[:16])
 	userjson, ok := userlib.DatastoreGet(uuid)
-	userdata = json.Unmarshal(userjson, User)
 	if !ok {
-		return nil, "Error getting user"
-	}*/
+		return nil, errors.New(strings.ToTitle("Error getting user"))
+	}
+	json.Unmarshal(userjson, userdataptr)
 	return &userdata, nil
 }
 
