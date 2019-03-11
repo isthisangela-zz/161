@@ -172,15 +172,17 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	pwbyte := []byte(password)
 	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
 	mackey := fatkey[:16]
+	symkey := fatkey[16:32]
 	macbytes, err2 := userlib.HMACEval(mackey, unbyte)
 	if err2 != nil {
 		return nil, err2
 	}
 	uuid, _ := uuid.FromBytes(macbytes[:16])
-	userjson, ok := userlib.DatastoreGet(uuid)
+	encryptedjson, ok := userlib.DatastoreGet(uuid)
 	if !ok {
 		return nil, errors.New(strings.ToTitle("Error getting user"))
 	}
+	userjson = userlib.SymDec(symkey, encryptedjson)
 	json.Unmarshal(userjson, userdataptr)
 	if userdata.FatKey != fatkey {
 		return nil, errors.New(strings.ToTitle("Integrity check failed"))
