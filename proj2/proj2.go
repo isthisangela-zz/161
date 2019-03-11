@@ -275,6 +275,22 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	}
 	cipherRoot := userlib.SymEnc(rootEncrypt, ivRoot, rootBytes)
 	userlib.DatastoreSet(uuidRoot, cipherRoot)
+
+	// gotta update the user!
+	unbyte := []byte(userdata.Username)
+	macbytes, err2 := userlib.HMACEval(userdata.FatKey[:16], unbyte)
+	if err2 != nil {
+		return
+	}
+	uuid, _ := uuid.FromBytes(macbytes[:16])
+
+	iv := userlib.RandomBytes(16)
+	userjson, err2 := json.Marshal(userdata)
+	if err2 != nil {
+		return
+	}
+	cipher := userlib.SymEnc(userdata.FatKey[16:32], iv, userjson)
+	userlib.DatastoreSet(uuid, cipher)
 }
 
 // This adds on to an existing file.
@@ -335,7 +351,6 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	if !ok {
 		return nil, errors.New(strings.ToTitle("No file with this name"))
 	}
-
 	var root RootFile
 	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
@@ -343,7 +358,8 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
-	json.Unmarshal(rootBytes, root)
+	json.Unmarshal(rootBytes, &root)
+
 
 	for i := 0; i < len(root.Files); i++ {
 		var file File
@@ -352,9 +368,10 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		if !ok {
 			return
 		}
+
 		fileKey := userdata.FileKeys[uuidFile.String() + "encrypt"]
 		fileBytes := userlib.SymDec(fileKey, encrypted)
-		json.Unmarshal(fileBytes, file)
+		json.Unmarshal(fileBytes, &file)
 
 		encryptedData := file.FileData
 		dataBytes := userlib.SymDec(fileKey, encryptedData)
