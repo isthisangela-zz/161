@@ -194,15 +194,30 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// decrypt
-	userjson = userlib.SymDec(symkey, encryptedjson)
+	userjson := userlib.SymDec(symkey, encryptedjson)
 	json.Unmarshal(userjson, userdataptr)
 
 	// integrity check
-	if userdata.FatKey != fatkey {
+	if !testEq(userdata.FatKey, fatkey) {
 		return nil, errors.New(strings.ToTitle("Integrity check failed"))
 	}
 
 	return &userdata, nil
+}
+
+func testEq(a, b []byte) bool {
+    if (a == nil) != (b == nil) { 
+        return false; 
+    }
+    if len(a) != len(b) {
+        return false
+    }
+    for i := range a {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    return true
 }
 
 // This stores a file in the datastore.
@@ -213,13 +228,10 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	uuid := uuid.New()
 
 	// encrypt the file data
-	data, err0 := json.Marshal(data)
-	if err0 != nil {
-		return nil, err0
-	}
+	json, _ := json.Marshal(data)
 
 	// make byte array with data, confidentiality + integrity
-	userlib.DatastoreSet(uuid, encrypted)
+	userlib.DatastoreSet(uuid, json)
 }
 
 // This adds on to an existing file.
