@@ -100,16 +100,21 @@ type User struct {
 	SignKey userlib.DSSignKey
 	DecKey userlib.PKEDecKey
 	FatKey []byte // containing MAC key, symmetric encryption key, etc
+	RootFiles map[string] uuid.UUID
+	FileKeys.map[string] []byte
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
 }
 
 type File struct {
-	Filename string
-	FileUUID uuid.UUID
-	FileKey []byte
-	FileSlice int
+	NameLength int
+	FileData []byte
+	Mac []byte
+}
+
+type RootFile struct {
+	Files []uuid.UUID
 }
 
 // This creates a user.  It will only be called once for a user
@@ -156,6 +161,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.DecKey = deckey
 	userdata.SignKey = signkey
 	userdata.FatKey = fatkey
+	userdata.RootFiles = make(map[string] uuid.UUID)
+	userdata.FileKeys = make(map[string] []byte)
 
 	// generate iv and encrypt userdata struct
 	iv := userlib.RandomBytes(16)
@@ -225,14 +232,43 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 //
 // The name of the file should NOT be revealed to the datastore!
 func (userdata *User) StoreFile(filename string, data []byte) {
-	// generate random uuid
-	uuid := uuid.New()
+	var file File
+	var root RootFile
 
-	// encrypt the file data
-	json, _ := json.Marshal(data)
+	// generate random things
+	uuidFile := uuid.New()
+	uuidRoot := uuid.New()
+	macKey := userlib.RandomBytes(16)
+	fileEncrypt := userlib.RandomBytes(16)
+	rootEncrypt := userlib.RandomBytes(16)
+	ivData := userlib.RandomBytes(16)
+	ivFile := userlib.RandomBytes(16)
+	ivRoot = userlib.RandomBytes(16)
 
-	// make byte array with data, confidentiality + integrity
-	userlib.DatastoreSet(uuid, json)
+	// set fields
+	unecrypted := []byte(filename) + data
+	encrypted = SymEnc(fileEncrypt, ivData, unecrypted)
+	mac := HMACEval(macKey, data)
+	file.NameLength = len(filename)
+	file.FileData = encrypted
+	file.Mac = mac
+
+	root.Files = make([] uuid.UUID, 0)
+	root.Files = append(root.Files, uuidFile)
+
+	userdata.RootFiles[filename] = uuidRoot
+	userdata.FileKeys[uuidFile.String() + "encrypt"] = fileEncrypt
+	userdata.FileKeys[uuidFile.String() + "mac"] = macKey
+	userdata.FileKeys[uuidRoot.String()] = rootEncrypt
+
+	// encrypt the files
+	fileBytes, err := json.Marshal(file)
+	cipherFile := SymEnc(fileEncrypt, ivFile, fileBytes)
+	userlib.DatastoreSet(uuidFile, cipherFile)
+
+	rootBytes, err2 := json.Marshal(root)
+	cipherRoot := SymEnc(rootEncrypt, ivRoot, rootBytes)
+	userlib.DatastoresSet(uuidRoot, cipherRoot)
 }
 
 // This adds on to an existing file.
@@ -242,7 +278,38 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 // metadata you need.
 
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
-	return
+	var file File
+
+	uuidRoot, ok = userdata.RootFiles[filename]
+	if !ok {
+		return
+	}
+
+	uuidFile := uuid.New()
+	macKey := userlib.RandomBytes(16)
+	fileEncrypt := userlib.RandomBytes(16)
+	ivData := userlib.RandomBytes(16)
+	ivFile := userlib.RandomBytes(16)
+
+	unecrypted := []byte(filename) + data
+	encrypted = SymEnc(fileEncrypt, ivData, unecrypted)
+	mac := HMACEval(macKey, data)
+	file.NameLength = len(filename)
+	file.FileData = encrypted
+	file.Mac = mac
+
+	userdata.FileKeys[uuidFile.String() + "encrypt"] = fileEncrypt
+	userdata.FileKeys[uuidFile.String() + "mac"] = macKey
+
+	fileBytes, err := json.Marshal(file)
+	cipherFile := SymEnc(fileEncrypt, ivFile, fileBytes)
+	userlib.DatastoreSet(uuidFile, cipherFile)
+
+	encryptedFiles := userlib.DatastoreGet(uuidRoot)
+	rootKey := userdata.FileKeys[uuidRoot.String()]
+	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
+	json.Unmarshal(rootBytes, root)
+	root.Files = append(root.Files, uuidFile)
 }
 
 // This loads a file from the Datastore.
