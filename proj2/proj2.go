@@ -197,9 +197,9 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	symkey := fatkey[16:32]
 
 	// find uuid
-	macbytes, err2 := userlib.HMACEval(mackey, unbyte)
-	if err2 != nil {
-		return nil, err2
+	macbytes, err := userlib.HMACEval(mackey, unbyte)
+	if err != nil {
+		return nil, err
 	}
 	uuid, _ := uuid.FromBytes(macbytes[:16])
 
@@ -270,6 +270,10 @@ type sharingRecord struct {
 
 func (userdata *User) ShareFile(filename string, recipient string) (
 	magic_string string, err error) {
+	data, err = userdata.LoadFile(filename)
+	if err != nil {
+		return "", errors.New(strings.ToTitle("No file with this name"))
+	}
 
 	return
 }
@@ -280,10 +284,19 @@ func (userdata *User) ShareFile(filename string, recipient string) (
 // it is authentically from the sender.
 func (userdata *User) ReceiveFile(filename string, sender string,
 	magic_string string) error {
+	// check if filename is already under user, if so, throw error
+	// register new file under this user
+	// but is actually the same file
 	return nil
 }
 
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
+	data, err = userdata.LoadFile(filename)
+	if err != nil {
+		return "", errors.New(strings.ToTitle("No file with this name"))
+	}
+	// delete the file
+	userdata.StoreFile(filename, data)
 	return
 }
