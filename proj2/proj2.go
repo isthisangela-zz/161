@@ -113,6 +113,8 @@ type File struct {
 // You can assume the user has a STRONG password
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
+
+	//convert username and password to byte arrays
 	unbyte := []byte(username)
 	pwbyte := []byte(password)
 
@@ -128,7 +130,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return nil, err1
 	}
 
-	// generate one more key for MACing (priv)
+	// generate a fat key and split it into MAC and symmetric encryption keys (priv)
 	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
 	mackey := fatkey[:16]
 	symkey := fatkey[16:32]
@@ -168,25 +170,38 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
+
+	//convert username and password to byte arrays
 	unbyte := []byte(username)
 	pwbyte := []byte(password)
+
+	// generate the fat key and get MAC and symmetric encryption keys
 	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
 	mackey := fatkey[:16]
 	symkey := fatkey[16:32]
+
+	// find uuid
 	macbytes, err2 := userlib.HMACEval(mackey, unbyte)
 	if err2 != nil {
 		return nil, err2
 	}
 	uuid, _ := uuid.FromBytes(macbytes[:16])
+
+	// fetch user with uuid from datastore
 	encryptedjson, ok := userlib.DatastoreGet(uuid)
 	if !ok {
 		return nil, errors.New(strings.ToTitle("Error getting user"))
 	}
+
+	// decrypt
 	userjson = userlib.SymDec(symkey, encryptedjson)
 	json.Unmarshal(userjson, userdataptr)
+
+	// integrity check
 	if userdata.FatKey != fatkey {
 		return nil, errors.New(strings.ToTitle("Integrity check failed"))
 	}
+
 	return &userdata, nil
 }
 
@@ -194,12 +209,16 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 //
 // The name of the file should NOT be revealed to the datastore!
 func (userdata *User) StoreFile(filename string, data []byte) {
+	// generate random uuid
 	uuid := uuid.New()
+
+	// encrypt the file data
 	data, err0 := json.Marshal(data)
 	if err0 != nil {
 		return nil, err0
 	}
-	// make byte array with filename and data, confidentiality + integrity
+
+	// make byte array with data, confidentiality + integrity
 	userlib.DatastoreSet(uuid, encrypted)
 }
 
