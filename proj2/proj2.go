@@ -130,7 +130,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// generate one more key for MACing (priv)
-	mackey := Argon2Key(pwbyte, unbyte, 128)
+	mackey := Argon2Key(pwbyte, unbyte, 16)
 
 	// encrypt userdata struct containing private keys
 	userdata.Username = username
@@ -139,7 +139,10 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.MACKey = mackey
 
 	// store struct in datastore
-	macbytes := HMACEval(mackey, unbyte)
+	macbytes, err2 := HMACEval(mackey, unbyte)
+	if err2 != nil {
+		return nil, err2
+	}
 	uuid := uuid.FromBytes(macbytes[:16])
 	encrypted := json.marshal(userdata)
 	DatastoreSet(uuid, encrypted)
