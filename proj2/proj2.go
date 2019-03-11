@@ -101,7 +101,7 @@ type User struct {
 	DecKey userlib.PKEDecKey
 	FatKey []byte // containing MAC key, symmetric encryption key, etc
 	RootFiles map[string] uuid.UUID
-	FileKeys.map[string] []byte
+	FileKeys map[string] []byte
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
