@@ -97,11 +97,11 @@ func testEq(a, b []byte) bool {
 // The structure definition for a user record
 type User struct {
 	Username string
-	SignKey userlib.DSSignKey
 	DecKey userlib.PKEDecKey
+	SignKey userlib.DSSignKey
 	FatKey []byte // containing MAC key, symmetric encryption key, etc
 	RootFiles map[string] uuid.UUID
-	FileKeys.map[string] []byte
+	FileKeys map[string] []byte
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
@@ -181,8 +181,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userlib.DatastoreSet(uuid, cipher)
 
 	// store public key in keystore
-	userlib.KeystoreSet(username + "_enc", enckey)
-	userlib.KeystoreSet(username + "_ver", verkey)
+	userlib.KeystoreSet(username + "enc", enckey)
+	userlib.KeystoreSet(username + "ver", verkey)
 
 	return &userdata, nil
 }
@@ -288,7 +288,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return //idk how to throw error
+		return errors.New(strings.ToTitle("No file with this name"))
 	}
 
 	uuidFile := uuid.New()
@@ -317,7 +317,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	var root RootFile
 	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
-		return
+		return errors.New(strings.ToTitle("No file with this id"))
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
@@ -333,13 +333,13 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return
+		return nil, errors.New(strings.ToTitle("No file with this name"))
 	}
 
 	var root RootFile
 	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
-		return
+		return nil, errors.New(strings.ToTitle("No file with this name"))
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
@@ -365,7 +365,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 			return nil, err
 		}
 		if !userlib.HMACEqual(file.Mac, newMac) {
-			return nil, nil//idk error
+			return nil, errors.New(strings.ToTitle("Failed integrity test"))
 		}
 
 		data = append(data, dataNoName...)
@@ -390,37 +390,44 @@ type sharingRecord struct {
 // recipient can access the sharing record, and only the recipient
 // should be able to know the sender.
 
-func (userdata *User) ShareFile(filename string, recipient string) (
-	magic_string string, err error) {
-	data, err = userdata.LoadFile(filename)
+func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
+	data, err := userdata.LoadFile(filename)
+	_ = data
 	if err != nil {
 		return "", errors.New(strings.ToTitle("No file with this name"))
 	}
+	mykey := userdata.DecKey
+	theirkey, ok := userlib.KeystoreGet(recipient + "enc")
+	if !ok {
+		return "", errors.New(strings.ToTitle("Couldn't find recipient's public key"))
+	}
+	_, _, _ = mykey, theirkey, ok
+	magic_string = ""
 
-	return
+	return magic_string, nil
 }
 
 // Note recipient's filename can be different from the sender's filename.
 // The recipient should not be able to discover the sender's view on
 // what the filename even is!  However, the recipient must ensure that
 // it is authentically from the sender.
-func (userdata *User) ReceiveFile(filename string, sender string,
-	magic_string string) error {
+func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) error {
 	// check if filename is already under user, if so, throw error
-	existing = userdata.RootFiles
-	if existing[filename] {
+	_, ok := userdata.RootFiles[filename]
+	if !ok {
 		return errors.New(strings.ToTitle("Recipient already has file with this name"))
 	}
 	// register new file under this user
+
 	// but is actually the same file
 	return nil
 }
 
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
-	data, err = userdata.LoadFile(filename)
+	data, err := userdata.LoadFile(filename)
 	if err != nil {
-		return "", errors.New(strings.ToTitle("No file with this name"))
+		return errors.New(strings.ToTitle("No file with this name"))
 	}
 	// delete the file
 	userdata.StoreFile(filename, data)

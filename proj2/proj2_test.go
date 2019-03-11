@@ -29,10 +29,25 @@ func TestInit(t *testing.T) {
 		t.Error("Failed to initialize user", err)
 	}
 	// t.Log() only produces output if you run with "go test -v"
-	t.Log("Got user", u)
+	//t.Log("Got user", u)
 	// If you want to comment the line above,
 	// write _ = u here to make the compiler happy
 	// You probably want many more tests here.
+	_ = u
+	if u.Username != "alice" {
+		t.Error("Not alice")
+	}
+	_, ok := userlib.KeystoreGet("aliceenc")
+	if !ok {
+		t.Error("enckey didn't make it to keystore")
+	}
+	uget, errget := GetUser("alice", "fubar")
+	if errget != nil {
+		t.Error("Couldn't get alice")
+	}
+	if !reflect.DeepEqual(u, uget) {
+		t.Error("Bad alice")
+	}
 }
 
 
