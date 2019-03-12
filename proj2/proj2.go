@@ -475,9 +475,11 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	// store
 	uuidRecord := uuid.New()
 	userlib.DatastoreSet(uuidRecord, jsonrecmac)
+	print(uuidRecord.String())
 
 	// magic string = uuid + symkey + mackey (16, 16, 16)
-	magic_slice := append([]byte(uuidRecord.String()), symkey...)
+	magic_slice := []byte(uuidRecord)
+	magic_slice = append(magic_slice, symkey...)
 	magic_slice = append(magic_slice, mackey...)
 
 	// encrypt stringyyy
@@ -513,13 +515,15 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	if err != nil {
 		return err
 	}
-	uuidRecord, _ := uuid.FromBytes(magic_slice[:16])
+	uuidRecord := bytesToUUID(magic_slice[:16])
 	symkey := magic_slice[16:32]
 	mackey := magic_slice[32:48]
 
 	// get from datastore and deserialize
 	jsonrecmac, ok := userlib.DatastoreGet(uuidRecord)
 	if !ok {
+		print("\n")
+		print(uuidRecord.String())
 		return errors.New(strings.ToTitle("Error fetching from datastore"))
 	}
 	json.Unmarshal(jsonrecmac, &recmac)
@@ -554,13 +558,9 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	macKeyFile := rec.MacKey
 
 	// now we are clear so give the user file access
-	// CANDACE HELP
-	data, ok := userlib.DatastoreGet(uuidFile)
-	if !ok {
-		return errors.New(strings.ToTitle("error getting file data"))
-	}
-	_, _ = symKeyFile, macKeyFile
-	userdata.StoreFile(filename, data)
+	userdata.RootFiles[filename] = uuidFile
+	userdata.FileKeys[filename + "encrypt"] = symKeyFile
+	userdata.FileKeys[filename + "mac"] = macKeyFile
 	
 	return nil
 }
@@ -569,7 +569,7 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 func (userdata *User) RevokeFile(filename string) (err error) {
 	// verify file on sender's side
 	uuidRoot, ok := userdata.RootFiles[filename]
-	if !ok {
+	if ok {
 		return errors.New(strings.ToTitle("No file with this name"))
 	}
 	_ = uuidRoot
