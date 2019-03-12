@@ -307,6 +307,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	uuidFile := uuid.New()
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
+	ivRoot := userlib.RandomBytes(16)
 
 	macKey := userdata.FileKeys[filename + "mac"]
 	fileEncrypt := userdata.FileKeys[filename + "encrypt"]
@@ -330,8 +331,14 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
-	json.Unmarshal(rootBytes, root)
+	json.Unmarshal(rootBytes, &root)
 	root.Files = append(root.Files, uuidFile)
+	rootBytes2, err2 := json.Marshal(root)
+	if err2 != nil {
+		return
+	}
+	cipherRoot := userlib.SymEnc(rootKey, ivRoot, rootBytes2)
+	userlib.DatastoreSet(uuidRoot, cipherRoot)
 
 	return nil
 }
@@ -567,10 +574,47 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	}
 	_ = uuidRoot
 
-	// delete the file
-	// ???? go to that address and fill in an empty file
+	var root RootFile
+	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
+	if !ok {
+		return errors.New(strings.ToTitle("No file with this name"))
+	}
+	rootKey := userdata.FileKeys[uuidRoot.String()]
+	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
+	json.Unmarshal(rootBytes, &root)
 
-	// store a fresh copy under this user
-	userdata.StoreFile(filename, nil)
+	macKey := userdata.FileKeys[filename + "mac"]
+	fileKey := userdata.FileKeys[filename + "encrypt"]
+
+	var data []byte
+
+	for i := 0; i < len(root.Files); i++ {
+		var file File
+		uuidFile := root.Files[i]
+		encrypted, ok := userlib.DatastoreGet(uuidFile)
+		if !ok {
+			return errors.New(strings.ToTitle("File storage corrupted"))
+		}
+
+		fileBytes := userlib.SymDec(fileKey, encrypted)
+		json.Unmarshal(fileBytes, &file)
+
+		dataBytes := userlib.SymDec(fileKey, file.FileData)
+		newMac, err := userlib.HMACEval(macKey, dataBytes)
+		if err != nil {
+			return err
+		}
+		if !userlib.HMACEqual(file.Mac, newMac) {
+			return errors.New(strings.ToTitle("Failed integrity test"))
+		}
+
+		data = append(data, dataBytes...)
+		userlib.DatastoreDelete(uuidFile)
+	}
+	userlib.DatastoreDelete(uuidRoot)
+	delete(userdata.FileKeys, uuidRoot.String())
+
+	userdata.StoreFile(filename, data)
+
 	return nil
 }
