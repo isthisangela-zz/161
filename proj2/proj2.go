@@ -257,8 +257,8 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	root.Files = append(root.Files, uuidFile)
 
 	userdata.RootFiles[filename] = uuidRoot
-	userdata.FileKeys[uuidFile.String() + "encrypt"] = fileEncrypt
-	userdata.FileKeys[uuidFile.String() + "mac"] = macKey
+	userdata.FileKeys[filename + "encrypt"] = fileEncrypt
+	userdata.FileKeys[filename + "mac"] = macKey
 	userdata.FileKeys[uuidRoot.String()] = rootEncrypt
 
 	// encrypt the files
@@ -305,10 +305,11 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 
 	uuidFile := uuid.New()
-	macKey := userlib.RandomBytes(16)
-	fileEncrypt := userlib.RandomBytes(16)
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
+
+	macKey := userdata.FileKeys[filename + "mac"]
+	fileEncrypt := userdata.FileKeys[filename + "encrypt"]
 
 	encrypted := userlib.SymEnc(fileEncrypt, ivData, data)
 	mac, err := userlib.HMACEval(macKey, data)
@@ -317,9 +318,6 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 	file.FileData = encrypted
 	file.Mac = mac
-
-	userdata.FileKeys[uuidFile.String() + "encrypt"] = fileEncrypt
-	userdata.FileKeys[uuidFile.String() + "mac"] = macKey
 
 	fileBytes, err := json.Marshal(file)
 	cipherFile := userlib.SymEnc(fileEncrypt, ivFile, fileBytes)
@@ -355,6 +353,8 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
 	json.Unmarshal(rootBytes, &root)
 
+	macKey := userdata.FileKeys[filename + "mac"]
+	fileKey := userdata.FileKeys[filename + "encrypt"]
 
 	for i := 0; i < len(root.Files); i++ {
 		var file File
@@ -364,12 +364,11 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 			return nil, errors.New(strings.ToTitle("File storage corrupted"))
 		}
 
-		fileKey := userdata.FileKeys[uuidFile.String() + "encrypt"]
 		fileBytes := userlib.SymDec(fileKey, encrypted)
 		json.Unmarshal(fileBytes, &file)
 
 		dataBytes := userlib.SymDec(fileKey, file.FileData)
-		newMac, err := userlib.HMACEval(userdata.FileKeys[uuidFile.String() + "mac"], dataBytes)
+		newMac, err := userlib.HMACEval(macKey, dataBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -549,7 +548,7 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	// now we are clear so give the user file access
 	// CANDACE HELP
 	userdata.StoreFile(filename string, data []byte)
-
+	
 	return nil
 }
 
