@@ -419,20 +419,20 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	if !ok {
 		return "", errors.New(strings.ToTitle("No file with this id"))
 	}
-	deckey := userdata.FileKeys[uuidRoot]
+	deckey := userdata.FileKeys[uuidRoot.String()]
 	uuidFile := userlib.SymDec(deckey, encrypted)
 
 	// CANDACE HELP??? 
 
 	// use it to get keys for encrypting and signing
-	symKeyFile := userdata.FileKeys[uuidFile.String() + "encrypt"]
-	macKeyFile := userdata.FileKeys[uuidFile.String() + "mac"]
+	symKeyFile := userdata.FileKeys[string(uuidFile) + "encrypt"]
+	macKeyFile := userdata.FileKeys[string(uuidFile) + "mac"]
 
 	// initialize sharing record struct
-	rec = sharingRecord{Uuids: uuidFile, SymKey: symKeyFile, MacKey: macKeyFile}
+	var rec = sharingRecord{Uuids: uuidFile, SymKey: symKeyFile, MacKey: macKeyFile}
 
 	// serialize
-	json, err := json.Marshal(rec)
+	jsonrec, err := json.Marshal(rec)
 	if err != nil {
 		return "", err
 	}
@@ -440,7 +440,7 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	// encryption for confidentiality
 	symkey := userlib.RandomBytes(16)
 	iv := userlib.RandomBytes(16)
-	record := userlib.SymEnc(symkey, iv, json)
+	record := userlib.SymEnc(symkey, iv, jsonrec)
 
 	// give digital signature for authenticity
 	signkey := userdata.SignKey
@@ -457,7 +457,7 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	}
 
 	// initialize record and mac struct
-	recmac = recordAndMac{Record: record, Signature: sig, Hmac: hmac}
+	var recmac = recordAndMac{Record: record, Signature: sig, Hmac: hmac}
 
 	// serialize
 	jsonrecmac, err := json.Marshal(recmac)
@@ -470,7 +470,8 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	userlib.DatastoreSet(uuidRecord, jsonrecmac)
 
 	// magic string = uuid + symkey + mackey (16, 16, 16)
-	magic_slice := append([]byte(uuidRecord.String()), symkey, mackey)
+	magic_slice := append([]byte(uuidRecord.String()), symkey...)
+	magic_slice = append(magic_slice, mackey...)
 
 	// encrypt stringyyy
 	enckey, ok := userlib.KeystoreGet(recipient + "enc")
@@ -505,7 +506,7 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	if err != nil {
 		return err
 	}
-	uuidRecord := uuid.FromBytes(magic_slice[:16])
+	uuidRecord, _ := uuid.FromBytes(magic_slice[:16])
 	symkey := magic_slice[16:32]
 	mackey := magic_slice[32:48]
 
@@ -524,30 +525,35 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	if !ok {
 		return errors.New(strings.ToTitle("Could not find sender's public key"))
 	}
-	err := userlib.DSVerify(verkey, record, sig)
+	err = userlib.DSVerify(verkey, record, sig)
 	if err != nil {
-		return errors.New(strings.ToTitle("Error verifying signature"))
+		return err
 	}
 
 	// verify hmac
-	computehmac, error := HMACEval(mackey, record)
+	computehmac, err := userlib.HMACEval(mackey, record)
 	if err != nil {
-		return errors.New(strings.ToTitle("HMACing error"))
+		return err
 	}
-	if !HMACEqual(hmac, computehmac) {
+	if !userlib.HMACEqual(hmac, computehmac) {
 		return errors.New(strings.ToTitle("HMACs didn't match up, file tampered with"))
 	}
 
 	// decrypt and deserialize
-	json := userlib.SymDec(symkey, record)
-	json.Unmarshal(json, &rec)
-	uuidFile := rec.Uuids
+	jsonrec := userlib.SymDec(symkey, record)
+	json.Unmarshal(jsonrec, &rec)
+	uuidFile, _ := uuid.FromBytes(rec.Uuids)
 	symKeyFile := rec.SymKey
 	macKeyFile := rec.MacKey
 
 	// now we are clear so give the user file access
 	// CANDACE HELP
-	userdata.StoreFile(filename string, data []byte)
+	data, ok := userlib.DatastoreGet(uuidFile)
+	if !ok {
+		return errors.New(strings.ToTitle("error getting file data"))
+	}
+	_, _ = symKeyFile, macKeyFile
+	userdata.StoreFile(filename, data)
 	
 	return nil
 }
@@ -559,6 +565,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	if !ok {
 		return errors.New(strings.ToTitle("No file with this name"))
 	}
+	_ = uuidRoot
 
 	var root RootFile
 	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
@@ -601,5 +608,6 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	delete(userdata.FileKeys, uuidRoot.String())
 
 	userdata.StoreFile(filename, data)
+
 	return nil
 }
