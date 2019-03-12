@@ -143,7 +143,7 @@ func TestShare(t *testing.T) {
 	if reflect.DeepEqual(v2, v3) {
 		t.Error("the file was the same after revoking...")
 	}
-	u.AppendFile("file1", []byte(" but this isn't!"))
+	u.AppendFile("file1", []byte(" l;kjkl;j kl;j!"))
 	v4, err = u2.LoadFile("file2")
 	if err != nil {
 		t.Error("Failed to download the file after sharing 3", err)

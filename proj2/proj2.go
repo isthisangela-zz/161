@@ -100,6 +100,7 @@ type User struct {
 	DecKey userlib.PKEDecKey
 	SignKey userlib.DSSignKey
 	FatKey []byte // containing MAC key, symmetric encryption key, etc
+	HMAC []byte
 	RootFiles map[string] uuid.UUID
 	FileKeys map[string] []byte
 	// You can add other fields here if you want...
@@ -154,6 +155,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	fatkey := userlib.Argon2Key(pwbyte, unbyte, 32)
 	mackey := fatkey[:16]
 	symkey := fatkey[16:32]
+
+	hmac := userlib.HMACEval
 
 	// put private keys in userdata
 	userdata.Username = username
