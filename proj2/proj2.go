@@ -386,11 +386,15 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 // You may want to define what you actually want to pass as a
 // sharingRecord to serialized/deserialize in the data store.
 type sharingRecord struct {
-	EncryptedMsg []byte
-	Signature []byte
-	HMAC []byte
+	Uuids []byte // or bare minimum of whatever youd need to access and edit the file
 	SymKey []byte
 	MacKey []byte
+}
+
+type recordAndMac struct {
+	Record []byte
+	Signature []byte
+	Hmac []byte
 }
 
 // This creates a sharing record, which is a key pointing to something
@@ -408,54 +412,77 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	// verify file on sender's side
 	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return nil, errors.New(strings.ToTitle("No file with this name"))
+		return "", errors.New(strings.ToTitle("No file with this name"))
 	}
 
 	// get uuid file
 	encrypted, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
-		return nil, errors.New(strings.ToTitle("No file with this id"))
+		return "", errors.New(strings.ToTitle("No file with this id"))
 	}
 	deckey := userdata.FileKeys[uuidRoot]
 	uuidFile := userlib.SymDec(deckey, encrypted)
+
+	// CANDACE HELP??? 
 
 	// use it to get keys for encrypting and signing
 	symKeyFile := userdata.FileKeys[uuidFile.String() + "encrypt"]
 	macKeyFile := userdata.FileKeys[uuidFile.String() + "mac"]
 
-	// initialize sharingRecord. someone said json.marshal doesn't take args this long
-	// each thingy is 16 bytes
-	longslice := append([]byte(uuidRoot.String()), symKeyFile, macKeyFile)
+	// initialize sharing record struct
+	rec = sharingRecord{Uuids: uuidFile, SymKey: symKeyFile, MacKey: macKeyFile}
 
-	// encryption for confidentiality - pke or sym?
-	symkey := // whomst
-	iv := userlib.RandomBytes(16)
-	encrypted := userlib.SymEnc(symkey, iv, longslice)
-
-	// encode magic_string, data signature will give it authenticity
-	signkey := userdata.SignKey
-	sig, err := userlib.DSSign(signkey, encrypted)
-	if err != nil {
-		return nil, errors.New(strings.ToTitle("Error making signature"))
-	}
-
-	// hmac for integrity - how to check in receiveFile?
-	mackey := // what
-	hmac, err := userlib.HMACEval(mackey, encrypted)
+	// serialize
+	json, err := json.Marshal(rec)
 	if err != nil {
 		return "", err
 	}
-	
-	rec = sharingRecord{EncryptedMsg: encrypted, Signature: sig, HMAC: hmac, SymKey: symkey, MacKey: mackey} // probably so insecure
-	// where are we supposed to put symkey and mackey ooooomg
-	marshal, err := json.Marshal(rec)
-	if err != nil {
-		return nil, err
-	}
-	userlib.DatastoreSet(LSDKFJ, marshal) // what the fuck
 
-	// READ THIS!!! basically idk what is supposed to be the magic string, i think probably encryptedmsg, but dude then all the other stuff we need to verify it gets transmitted separately in a datastoreset
-	magic_string = // we can set it to literally anythign.. rn everythigns in the rec struct so like set this to sometjing and remove it from the struct
+	// encryption for confidentiality
+	symkey := userlib.RandomBytes(16)
+	iv := userlib.RandomBytes(16)
+	record := userlib.SymEnc(symkey, iv, json)
+
+	// give digital signature for authenticity
+	signkey := userdata.SignKey
+	sig, err := userlib.DSSign(signkey, record)
+	if err != nil {
+		return "", errors.New(strings.ToTitle("Error making signature"))
+	}
+
+	// hmac for integrity
+	mackey := userlib.RandomBytes(16)
+	hmac, err := userlib.HMACEval(mackey, record)
+	if err != nil {
+		return "", err
+	}
+
+	// initialize record and mac struct
+	recmac = recordAndMac{Record: record, Signature: sig, Hmac: hmac}
+
+	// serialize
+	jsonrecmac, err := json.Marshal(recmac)
+	if err != nil {
+		return "", err
+	}
+
+	// store
+	uuidRecord := uuid.New()
+	userlib.DatastoreSet(uuidRecord, jsonrecmac)
+
+	// magic string = uuid + symkey + mackey (16, 16, 16)
+	magic_slice := append([]byte(uuidRecord.String()), symkey, mackey)
+
+	// encrypt stringyyy
+	enckey, ok := userlib.KeystoreGet(recipient + "enc")
+	if !ok {
+		return "", errors.New(strings.ToTitle("Couldn't find encryption key"))
+	}
+	pke, err := userlib.PKEEnc(enckey, magic_slice) 
+
+	// HOW DO I GIVE IT INTEGRITY LOOOLLL:)))
+
+	magic_string = string(pke)
 	return magic_string, nil
 }
 
@@ -470,42 +497,57 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 		return errors.New(strings.ToTitle("Recipient already has file with this name"))
 	}
 
+	var recmac recordAndMac
 	var rec sharingRecord
 
-	// get from datastore
-	marshal, ok := userlib.DatastoreGet(LSDKFJ)
+	// get stuff out of magic_string
+	deckey := userdata.DecKey
+	magic_slice, err := userlib.PKEDec(deckey, []byte(magic_string))
+	if err != nil {
+		return err
+	}
+	uuidRecord := uuid.FromBytes(magic_slice[:16])
+	symkey := magic_slice[16:32]
+	mackey := magic_slice[32:48]
+
+	// get from datastore and deserialize
+	jsonrecmac, ok := userlib.DatastoreGet(uuidRecord)
 	if !ok {
 		return errors.New(strings.ToTitle("Error fetching from datastore"))
 	}
-	json.Demarshal(marshal, &rec)
-
-	encrypted := rec.EncryptedMsg
-	sig := rec.Signature
-	hmac := rec.HMAC
-	symkey := rec.SymKey
-	mackey := rec.MacKey
+	json.Unmarshal(jsonrecmac, &recmac)
+	record := recmac.Record
+	sig := recmac.Signature
+	hmac := recmac.Hmac
 
 	// verify that it's from the right sender
-	verkey, ok := userlib.KeystoreGet(sender)
+	verkey, ok := userlib.KeystoreGet(sender + "ver")
 	if !ok {
 		return errors.New(strings.ToTitle("Could not find sender's public key"))
 	}
-	err := userlib.DSVerify(verkey, encrypted, sig)
+	err := userlib.DSVerify(verkey, record, sig)
 	if err != nil {
 		return errors.New(strings.ToTitle("Error verifying signature"))
 	}
 
-	// decrypt
-	longslice := userlib.SymDec(symkey, encrypted)
-
-	// verify mac
-	computehmac := HMACEval(mackey, encrypted)
+	// verify hmac
+	computehmac, error := HMACEval(mackey, record)
+	if err != nil {
+		return errors.New(strings.ToTitle("HMACing error"))
+	}
 	if !HMACEqual(hmac, computehmac) {
 		return errors.New(strings.ToTitle("HMACs didn't match up, file tampered with"))
 	}
 
+	// decrypt and deserialize
+	json := userlib.SymDec(symkey, record)
+	json.Unmarshal(json, &rec)
+	uuidFile := rec.Uuids
+	symKeyFile := rec.SymKey
+	macKeyFile := rec.MacKey
+
 	// now we are clear so give the user file access
-	// CANDACE HELP this is wrong!!!!!!
+	// CANDACE HELP
 	userdata.StoreFile(filename string, data []byte)
 
 	return nil
