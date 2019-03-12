@@ -301,7 +301,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return errors.New(strings.ToTitle("No file with this name"))
+		return errors.New(strings.ToTitle("No file with this name 3"))
 	}
 
 	uuidFile := uuid.New()
@@ -349,12 +349,12 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	uuidRoot, ok := userdata.RootFiles[filename]
 	if !ok {
-		return nil, errors.New(strings.ToTitle("No file with this name"))
+		return nil, errors.New(strings.ToTitle("No file with this name 4"))
 	}
 	var root RootFile
 	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
-		return nil, errors.New(strings.ToTitle("No file with this name"))
+		return nil, errors.New(strings.ToTitle("No file with this name 5"))
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
@@ -417,10 +417,8 @@ type recordAndMac struct {
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
 	// verify file on sender's side
 	uuidRoot, ok := userdata.RootFiles[filename]
-	print(uuidRoot.String())
-	print('\n')
 	if !ok {
-		return "", errors.New(strings.ToTitle("No file with this name"))
+		return "", errors.New(strings.ToTitle("No file with this name 6"))
 	}
 
 	// get uuid file
@@ -475,12 +473,12 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	// store
 	uuidRecord := uuid.New()
 	userlib.DatastoreSet(uuidRecord, jsonrecmac)
-	print(uuidRecord.String())
 
 	// magic string = uuid + symkey + mackey (16, 16, 16)
-	magic_slice := []byte(uuidRecord.String())
-	magic_slice = append(magic_slice, symkey...)
+	marshy, _ := json.Marshal(uuidRecord)
+	magic_slice := symkey
 	magic_slice = append(magic_slice, mackey...)
+	magic_slice = append(magic_slice, marshy...)
 
 	// encrypt stringyyy
 	enckey, ok := userlib.KeystoreGet(recipient + "enc")
@@ -508,6 +506,7 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 
 	var recmac recordAndMac
 	var rec sharingRecord
+	var uuidRecord uuid.UUID
 
 	// get stuff out of magic_string
 	deckey := userdata.DecKey
@@ -515,15 +514,14 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	if err != nil {
 		return err
 	}
-	uuidRecord := bytesToUUID(magic_slice[:16])
-	symkey := magic_slice[16:32]
-	mackey := magic_slice[32:48]
+	symkey := magic_slice[:16]
+	mackey := magic_slice[16:32]
+	json.Unmarshal(magic_slice[32:], &uuidRecord)
 
 	// get from datastore and deserialize
 	jsonrecmac, ok := userlib.DatastoreGet(uuidRecord)
 	if !ok {
 		print("\n")
-		print(uuidRecord.String())
 		return errors.New(strings.ToTitle("Error fetching from datastore"))
 	}
 	json.Unmarshal(jsonrecmac, &recmac)
@@ -562,6 +560,22 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	userdata.FileKeys[filename + "encrypt"] = symKeyFile
 	userdata.FileKeys[filename + "mac"] = macKeyFile
 	
+	// gotta update the user!
+	unbyte := []byte(userdata.Username)
+	macbytes, err2 := userlib.HMACEval(userdata.FatKey[:16], unbyte)
+	if err2 != nil {
+		return err2
+	}
+	uuid, _ := uuid.FromBytes(macbytes[:16])
+
+	iv := userlib.RandomBytes(16)
+	userjson, err2 := json.Marshal(userdata)
+	if err2 != nil {
+		return err2
+	}
+	cipher := userlib.SymEnc(userdata.FatKey[16:32], iv, userjson)
+	userlib.DatastoreSet(uuid, cipher)
+
 	return nil
 }
 
@@ -570,14 +584,14 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	// verify file on sender's side
 	uuidRoot, ok := userdata.RootFiles[filename]
 	if ok {
-		return errors.New(strings.ToTitle("No file with this name"))
+		return errors.New(strings.ToTitle("No file with this name 1"))
 	}
 	_ = uuidRoot
 
 	var root RootFile
 	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
-		return errors.New(strings.ToTitle("No file with this name"))
+		return errors.New(strings.ToTitle("No file with this name 2"))
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
