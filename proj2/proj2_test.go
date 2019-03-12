@@ -71,6 +71,30 @@ func TestStorage(t *testing.T) {
 	if !reflect.DeepEqual(v, v2) {
 		t.Error("Downloaded file is not the same", v, v2)
 	}
+
+	w := []byte(" but this isn't!")
+	ww := append(v, w...)
+	u.AppendFile("file1", w)
+
+	w2, err3 := u.LoadFile("file1")
+	if err3 != nil {
+		t.Error("Oh no it didn't work!", err3)
+	}
+	if !reflect.DeepEqual(w2, ww) {
+		t.Error("Not the same!", w2, ww)
+	}
+
+	y := []byte(" hehe think again")
+	yy := append(ww, y...)
+	u.AppendFile("file1", y)
+
+	w3, err4 := u.LoadFile("file1")
+	if err4 != nil {
+		t.Error("Oh no it didn't work!", err4)
+	}
+	if !reflect.DeepEqual(w3, yy) {
+		t.Error("Not the same!", w3, yy)
+	}
 }
 
 func TestShare(t *testing.T) {

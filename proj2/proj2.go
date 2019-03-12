@@ -307,6 +307,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	uuidFile := uuid.New()
 	ivData := userlib.RandomBytes(16)
 	ivFile := userlib.RandomBytes(16)
+	ivRoot := userlib.RandomBytes(16)
 
 	macKey := userdata.FileKeys[filename + "mac"]
 	fileEncrypt := userdata.FileKeys[filename + "encrypt"]
@@ -330,8 +331,14 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 	rootKey := userdata.FileKeys[uuidRoot.String()]
 	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
-	json.Unmarshal(rootBytes, root)
+	json.Unmarshal(rootBytes, &root)
 	root.Files = append(root.Files, uuidFile)
+	rootBytes2, err2 := json.Marshal(root)
+	if err2 != nil {
+		return
+	}
+	cipherRoot := userlib.SymEnc(rootKey, ivRoot, rootBytes2)
+	userlib.DatastoreSet(uuidRoot, cipherRoot)
 
 	return nil
 }
@@ -604,7 +611,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 		data = append(data, dataBytes...)
 		userlib.DatastoreDelete(uuidFile)
 	}
-	userlib.DatastoreDelete(uuidRoots)
+	userlib.DatastoreDelete(uuidRoot)
 	delete(userdata.FileKeys, uuidRoot.String())
 
 	userdata.StoreFile(filename, data)
