@@ -417,6 +417,8 @@ type recordAndMac struct {
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
 	// verify file on sender's side
 	uuidRoot, ok := userdata.RootFiles[filename]
+	print(uuidRoot.String())
+	print('\n')
 	if !ok {
 		return "", errors.New(strings.ToTitle("No file with this name"))
 	}
@@ -428,8 +430,6 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	}
 	deckey := userdata.FileKeys[uuidRoot.String()]
 	uuidFile := userlib.SymDec(deckey, encrypted)
-
-	// CANDACE HELP??? 
 
 	// use it to get keys for encrypting and signing
 	symKeyFile := userdata.FileKeys[string(uuidFile) + "encrypt"]
@@ -478,7 +478,7 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	print(uuidRecord.String())
 
 	// magic string = uuid + symkey + mackey (16, 16, 16)
-	magic_slice := []byte(uuidRecord)
+	magic_slice := []byte(uuidRecord.String())
 	magic_slice = append(magic_slice, symkey...)
 	magic_slice = append(magic_slice, mackey...)
 
