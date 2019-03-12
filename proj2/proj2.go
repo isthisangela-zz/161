@@ -395,6 +395,7 @@ type sharingRecord struct {
 	Uuids []byte // or bare minimum of whatever youd need to access and edit the file
 	SymKey []byte
 	MacKey []byte
+	DecKey []byte
 }
 
 type recordAndMac struct {
@@ -422,19 +423,20 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 	}
 
 	// get uuid file
-	encrypted, ok := userlib.DatastoreGet(uuidRoot)
+	//encrypted, ok := userlib.DatastoreGet(uuidRoot)
 	if !ok {
 		return "", errors.New(strings.ToTitle("No file with this id"))
 	}
 	deckey := userdata.FileKeys[uuidRoot.String()]
-	uuidFile := userlib.SymDec(deckey, encrypted)
+	//uuidFile := userlib.SymDec(deckey, encrypted)
+	byte_uuid, _ := json.Marshal(uuidRoot)
 
 	// use it to get keys for encrypting and signing
-	symKeyFile := userdata.FileKeys[string(uuidFile) + "encrypt"]
-	macKeyFile := userdata.FileKeys[string(uuidFile) + "mac"]
+	symKeyFile := userdata.FileKeys[filename + "encrypt"]
+	macKeyFile := userdata.FileKeys[filename + "mac"]
 
 	// initialize sharing record struct
-	var rec = sharingRecord{Uuids: uuidFile, SymKey: symKeyFile, MacKey: macKeyFile}
+	var rec = sharingRecord{Uuids: byte_uuid, SymKey: symKeyFile, MacKey: macKeyFile, DecKey: deckey}
 
 	// serialize
 	jsonrec, err := json.Marshal(rec)
@@ -521,7 +523,6 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	// get from datastore and deserialize
 	jsonrecmac, ok := userlib.DatastoreGet(uuidRecord)
 	if !ok {
-		print("\n")
 		return errors.New(strings.ToTitle("Error fetching from datastore"))
 	}
 	json.Unmarshal(jsonrecmac, &recmac)
@@ -547,18 +548,22 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	if !userlib.HMACEqual(hmac, computehmac) {
 		return errors.New(strings.ToTitle("HMACs didn't match up, file tampered with"))
 	}
+	var uuidFile uuid.UUID
 
 	// decrypt and deserialize
 	jsonrec := userlib.SymDec(symkey, record)
 	json.Unmarshal(jsonrec, &rec)
-	uuidFile, _ := uuid.FromBytes(rec.Uuids)
+	//uuidFile, _ := uuid.FromBytes(rec.Uuids)
+	json.Unmarshal(rec.Uuids, &uuidFile)
 	symKeyFile := rec.SymKey
 	macKeyFile := rec.MacKey
+	decKeyFile := rec.DecKey
 
 	// now we are clear so give the user file access
 	userdata.RootFiles[filename] = uuidFile
 	userdata.FileKeys[filename + "encrypt"] = symKeyFile
 	userdata.FileKeys[filename + "mac"] = macKeyFile
+	userdata.FileKeys[uuidFile.String()] = decKeyFile
 	
 	// gotta update the user!
 	unbyte := []byte(userdata.Username)
