@@ -493,7 +493,7 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) error {
 	// check if filename is already under user, if so, throw error
 	_, ok := userdata.RootFiles[filename]
-	if !ok {
+	if ok {
 		return errors.New(strings.ToTitle("Recipient already has file with this name"))
 	}
 
