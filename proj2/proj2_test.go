@@ -107,7 +107,7 @@ func TestShare(t *testing.T) {
 		t.Error("Failed to initialize bob", err2)
 	}
 
-	var v, v2 []byte
+	var v, v2, v3, v4 []byte
 	var magic_string string
 
 	v, err = u.LoadFile("file1")
@@ -126,10 +126,30 @@ func TestShare(t *testing.T) {
 
 	v2, err = u2.LoadFile("file2")
 	if err != nil {
-		t.Error("Failed to download the file after sharing", err)
+		t.Error("Failed to download the file after sharing 1", err)
 	}
 	if !reflect.DeepEqual(v, v2) {
 		t.Error("Shared file is not the same", v, v2)
+	}
+
+	err = u.RevokeFile("file1")
+	if err != nil {
+		t.Error("Failed to revoke the a file", err)
+	}
+	v3, err = u2.LoadFile("file2")
+	if err != nil {
+		t.Error("Failed to download the file after sharing 2", err)
+	}
+	if reflect.DeepEqual(v2, v3) {
+		t.Error("the file was the same after revoking...")
+	}
+	u.AppendFile("file1", []byte(" l;kjkl;j kl;j!"))
+	v4, err = u2.LoadFile("file2")
+	if err != nil {
+		t.Error("Failed to download the file after sharing 3", err)
+	}
+	if !reflect.DeepEqual(v4, v3) {
+		t.Error("revoked file changed", v4, v3)
 	}
 
 }
