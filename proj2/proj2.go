@@ -560,10 +560,46 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 		return errors.New(strings.ToTitle("No file with this name"))
 	}
 
-	// delete the file
-	// ???? go to that address and fill in an empty file
+	var root RootFile
+	encryptedFiles, ok := userlib.DatastoreGet(uuidRoot)
+	if !ok {
+		return errors.New(strings.ToTitle("No file with this name"))
+	}
+	rootKey := userdata.FileKeys[uuidRoot.String()]
+	rootBytes := userlib.SymDec(rootKey, encryptedFiles)
+	json.Unmarshal(rootBytes, &root)
 
-	// store a fresh copy under this user
+	macKey := userdata.FileKeys[filename + "mac"]
+	fileKey := userdata.FileKeys[filename + "encrypt"]
+
+	var data []byte
+
+	for i := 0; i < len(root.Files); i++ {
+		var file File
+		uuidFile := root.Files[i]
+		encrypted, ok := userlib.DatastoreGet(uuidFile)
+		if !ok {
+			return errors.New(strings.ToTitle("File storage corrupted"))
+		}
+
+		fileBytes := userlib.SymDec(fileKey, encrypted)
+		json.Unmarshal(fileBytes, &file)
+
+		dataBytes := userlib.SymDec(fileKey, file.FileData)
+		newMac, err := userlib.HMACEval(macKey, dataBytes)
+		if err != nil {
+			return err
+		}
+		if !userlib.HMACEqual(file.Mac, newMac) {
+			return errors.New(strings.ToTitle("Failed integrity test"))
+		}
+
+		data = append(data, dataBytes...)
+		userlib.DatastoreDelete(uuidFile)
+	}
+	userlib.DatastoreDelete(uuidRoots)
+	delete(userdata.FileKeys, uuidRoot.String())
+
 	userdata.StoreFile(filename, data)
 	return nil
 }
